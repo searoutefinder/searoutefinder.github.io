@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet" type="text/css">
+    <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css" rel="stylesheet" type="text/css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Raleway:wght@300&display=swap" rel="stylesheet">    
+    <style type="text/css">
+      * {
+        box-sizing:border-box;
+        font-family: "Open Sans", sans-serif;
+      }
+      body {
+        margin:0;
+        padding:0;
+      }
+      .app {
+        position:absolute;
+        width: 100%;
+        height:100%;  
+      }
+      obaggo-location-input {
+        position: absolute;
+        left:0;
+        top:0;
+        width:30%;
+        height:50px;
+        display:block;
+      }
+      obaggo-location-input .geocoder-input-container {
+        position: relative;
+        width:70%;
+        top:0;
+        left:0;
+        height:100%;
+      }
+      obaggo-location-input .geocoder-input-container .mapboxgl-ctrl-geocoder {
+        width: 100%;
+        font-size: 15px;
+        line-height: 50px;
+        max-width: unset;
+        border-radius: unset;
+        box-shadow: unset;
+      }
+      obaggo-location-input .geocoder-input-container .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon-search {
+        left: 7px;
+        width: 20px;
+        height: 20px;
+        top: 14px;        
+      }
+      obaggo-location-input .geocoder-input-container .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--pin-right > * {
+        z-index: 2;
+        position: absolute;
+        right: 8px;
+        top: 14px;          
+      }
+      obaggo-location-input .geocoder-input-container .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input {
+        height:50px;
+      }
+      obaggo-location-input .geocoder-input-container .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--suggestion {
+        line-height:20px;
+      }
+      obaggo-location-input .radius-input-container {
+        position: absolute;
+        width:30%;
+        top:0;
+        right:0;
+        height:100%;        
+      }
+      obaggo-location-input .radius-input-container select {
+        width: 100%;
+        height: 100%;
+        text-align: center;
+        background: #FFF;
+        border: none;
+      }
+      .backdrop {
+        display:none;
+      }
+      .backdrop.on {
+        background: rgba(0,0,0,0.5);
+        position: absolute;
+        top: 0px;
+        bottom: 0px;
+        left: 0px;
+        right: 0px;
+        z-index: 999;
+        text-align:center;
+        display:block;
+      }
+      .lds-facebook {
+        display: inline-block;
+        position: relative;
+        width: 80px;
+        height: 80px;
+        top: calc(50% - 40px);
+      }
+      .lds-facebook div {
+        display: inline-block;
+        position: absolute;
+        left: 8px;
+        width: 16px;
+        background: #fff;
+        animation: lds-facebook 1.2s cubic-bezier(0, 0.5, 0.5, 1) infinite;
+      }
+      .lds-facebook div:nth-child(1) {
+        left: 8px;
+        animation-delay: -0.24s;
+      }
+      .lds-facebook div:nth-child(2) {
+        left: 32px;
+        animation-delay: -0.12s;
+      }
+      .lds-facebook div:nth-child(3) {
+        left: 56px;
+        animation-delay: 0;
+      }
+      @keyframes lds-facebook {
+        0% {
+          top: 8px;
+          height: 64px;
+        }
+        50%, 100% {
+          top: 24px;
+          height: 32px;
+        }
+      }      
+      @media only screen and (max-width: 1024px) {
+        obaggo-location-input {
+          position:relative;
+          top: 0;
+          left:0;
+          display:block;
+          height:50px;
+          width:100%;                  
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Layout -->
+    <div class="app">
+      <obaggo-location-input></obaggo-location-input>
+      <obaggo-map></obaggo-map>
+      <obaggo-location-list></obaggo-location-list>
+      <div class="backdrop on">
+        <div class="lds-facebook">
+          <div></div>
+          <div></div>
+          <div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js" integrity="sha512-Q7HOppxoH0L2M7hreVoFCtUZimR2YaY0fBewIYzkCgmNtgOOZ5IgMNYxHgfps0qrO1ef5m7L1FeHrhXlq1I9HA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>  
+    <script src="https://unpkg.com/h3-js"></script>
+    <script>
+      
+      // Custom elements definitions
+
+      class ObaggoMap extends HTMLElement {
+        #assets = {}
+
+        get features() {
+          return this._props.features
+        }
+        set features(features) {
+          this._props.features = JSON.parse(JSON.stringify(features))
+          this.updateMap()
+        }
+
+        get clickedFeatureID() {
+          return this._props.clickedFeatureID
+        }
+        set clickedFeatureID(featureID) {
+          this._props.clickedFeatureID = featureID
+          this.highlightFeatureById()
+        }
+
+        constructor() {
+          super()
+          this._props = {}
+          this.template = document.createElement("template")
+          this.template.innerHTML = `
+            <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet">
+            <style>
+              :host {
+                position:relative;
+                display:block;
+                height:100%;
+                width:70%;
+                left:30%;
+              }
+              :host #map {
+                position:absolute;
+                height:100%;
+                width:100%;
+              }
+              @media only screen and (max-width: 1024px) {
+                :host {
+                  position:relative;
+                  display:block;
+                  height:100%;
+                  width:100%;
+                  left:0;
+                }              
+              }
+            </style>
+            <div id="map">
+            </div>
+          `
+          this.attachShadow({"mode": "open"})
+        }
+        connectedCallback() {
+          this.shadowRoot.appendChild(this.template.content.cloneNode(true))
+          this.initialize()          
+        }
+        emit(type, detail) {      
+          // Create a new event
+          let event = new CustomEvent(`obaggo-map:${type}`, {
+            "bubbles": true,
+            "cancelable": true,
+            "detail": detail
+          })
+          // Dispatch the event
+          this.dispatchEvent(event)
+        }
+        initialize() {
+          mapboxgl.accessToken = `pk.eyJ1Ijoib2JhZ2dvIiwiYSI6ImNscnV1dzZyeTAxYm0yaW8yeWtzM2VtejgifQ.lrrKCPKUjiKL1c6UjbF6_A`
+          this.#assets.map = new mapboxgl.Map({
+            "container": this.shadowRoot.querySelector("#map"),
+            "center": [-100, 45],
+            "zoom": 3,
+            "projection": "mercator"
+          })
+          this.#assets.popup = new mapboxgl.Popup({"offset": [0, -18]}).addTo(this.#assets.map)
+          this.#assets.map.scrollZoom.disable()
+          this.#assets.map.on("load", this.mapLoadHandler.bind(this))
+        }
+        mapLoadHandler() {
+          let that = this
+          this.#assets.map.addControl(new mapboxgl.NavigationControl())
+          this.#assets.map.loadImage("https://ezmapdesign.com/demos/aces/ObaggoIcon.png", (error, image) => {
+            if (error) throw error;
+
+            that.#assets.map.addImage('obaggo', image);
+                              
+            that.initializeLayers()
+            that.emit("loaded", {})
+          })
+        }
+        removeLayers() {
+          this.#assets.map.removeLayer("locations_lyr")
+          this.#assets.map.removeSource("locations_src")
+        }
+        initializeLayers() {
+          this.#assets.map.addSource("locations_src", {
+            "type": "geojson",
+            "data": {
+              "type": "FeatureCollection",
+              "features": []
+            }
+          })
+          this.#assets.map.addLayer({
+            "id": "locations_lyr",
+            "type": "symbol",
+            "source": "locations_src",
+            "layout": {
+              "icon-image": "obaggo",
+              "icon-size": 0.1
+            }
+          })
+          this.#assets.map.on("click", "locations_lyr", (e) => {
+            this.#assets.popup
+              .setLngLat(e.features[0].geometry.coordinates)
+              .setHTML(`<h2 style="margin:0;padding:0;font-size:15px;">${e.features[0].properties.name}</h2>
+              <ul style="margin:0;padding:0;list-style:none;">
+                <li>${e.features[0].properties.distance.toFixed(1)} mi</li>
+                <li>${e.features[0].properties.address} ${e.features[0].properties.city} ${e.features[0].properties.postalCode} ${e.features[0].properties.state}</li>
+                <li>${e.features[0].properties.phone}</li>                
+              </ul>
+              <a target="_blank" href="http://maps.google.com/maps?daddr=${e.features[0].geometry.coordinates[1]}%2C${e.features[0].geometry.coordinates[0]}">Directions</button>
+              `)
+              .setMaxWidth("400px")
+              .addTo(this.#assets.map)
+          })
+        }
+        rowsToFeatures(rows) {
+          let features = []
+          if(rows.length === 0) {
+            return features
+          }
+
+          for(let i = 0; i < rows.length; i++) {
+            let feature = {
+              "type": "Feature",
+              "properties": {
+                "label": rows[i][2],
+                "name": rows[i][3],
+                "address": rows[i][4],
+                "postalCode": rows[i][5],
+                "phone": rows[i][6],
+                "notes": rows[i][7],
+                "city": rows[i][8],
+                "state": rows[i][9],
+                "id": rows[i][10],
+                "distance": rows[i][12]
+              },
+              "geometry": {
+                "type": "Point",
+                "coordinates": [
+                  rows[i][0],
+                  rows[i][1]
+                ]
+              }
+            }
+            features.push(feature)
+          }
+          return features
+        }
+        updateMap() {
+          if( typeof this.#assets.map.getSource("locations_src") != "undefined" ) {
+            this.#assets.map.getSource("locations_src").setData({"type": "FeatureCollection", "features": this.rowsToFeatures(this.features)})
+            this.updateBounds()
+            this.#assets.popup.remove()
+            this.emit("updated", {})
+          }
+        }
+        updateBounds() {
+          let bounds = new mapboxgl.LngLatBounds
+          for(let i = 0; i < this.features.length;i++) {
+            bounds.extend([this.features[i][0], this.features[i][1]])
+          }
+          this.#assets.map.fitBounds(bounds)
+        }
+        highlightFeatureById() {
+          let that = this
+          let matchingFeatures = this.features.filter((feature, index) => {
+            if(feature[10] === that.clickedFeatureID) {
+              return true
+            }
+          })
+          let matchingFeature = matchingFeatures[0]
+                    
+          // Simulate a click
+          /*this.#assets.map.fire('click', {
+            "latLng": [matchingFeature[0], matchingFeature[1]],
+            "point": this.#assets.map.project([matchingFeature[0], matchingFeature[1]]),
+            "originalEvent": {} 
+          })*/
+          this.#assets.popup
+            .setLngLat([matchingFeature[0], matchingFeature[1]])
+            .setHTML(`<h2 style="margin:0;padding:0;font-size:15px;">${matchingFeature[2]}</h2>
+              <ul style="margin:0;padding:0;list-style:none;">
+                <li>${matchingFeature[12].toFixed(1)} mi</li>
+                <li>${matchingFeature[4]} ${matchingFeature[8]} ${matchingFeature[5]} ${matchingFeature[9]}</li>
+                <li>${matchingFeature[6]}</li>                
+              </ul>
+              <a target="_blank" href="https://www.google.com/maps/dir/${matchingFeature[1]}%2C${matchingFeature[0]}">Directions</button>
+              `)
+            .setMaxWidth("400px")
+            .addTo(this.#assets.map)
+
+
+          // Fly to location
+          this.#assets.map.flyTo({
+            "center": [matchingFeature[0], matchingFeature[1]],
+            "zoom": 12,
+            "essential": false,
+            "duration": 0
+          })          
+        }
+      }
+      window.customElements.define('obaggo-map', ObaggoMap)
+
+      class ObaggoLocationInput extends HTMLElement {
+        #config = {
+          "appURL": "https://script.google.com/macros/s/AKfycbysWm3FUjPo9bWs9fGXqlZQ5fEkib6fDnVGxe5OWwvi0XygqYzkJXuPnQZKkdEiatQNpg/exec",
+          "mapboxToken": "pk.eyJ1Ijoib2JhZ2dvIiwiYSI6ImNscnV1dzZyeTAxYm0yaW8yeWtzM2VtejgifQ.lrrKCPKUjiKL1c6UjbF6_A",
+          "defaultRadius": 20
+        }
+        #assets = {}
+
+        get radius() {
+          return this._props.radius
+        }
+        set radius(radius) {
+          this._props.radius = radius
+          this.requestLocations()
+        }
+
+        get location() {
+          return this._props.location
+        }
+        set location(location) {
+          this._props.location = location
+          this.requestLocations()
+        }
+
+        constructor() {
+          super()
+          this._props = {
+            "radius": this.#config.defaultRadius
+          }
+          this.template = document.createElement("template")
+          this.template.innerHTML = `
+            <div class="geocoder-input-container"></div><!--
+            --><div class="radius-input-container">
+                <select class="radius-selector">
+                  <option disabled>Pick a distance</option>
+                  <option value="5">5 mi</option>
+                  <option value="10">10 mi</option>
+                  <option value="15">15 mi</option>
+                  <option selected value="20">20 mi</option>
+                  <option value="25">25 mi</option>
+                  <option value="30">30 mi</option>
+                </select>
+              </div>
+          `         
+        }
+        connectedCallback() {
+          this.appendChild(this.template.content.cloneNode(true))
+          this.initialize()
+        }
+        emit(type, detail) {      
+          // Create a new event
+          let event = new CustomEvent(`obaggo-location-input:${type}`, {
+            "bubbles": true,
+            "cancelable": true,
+            "detail": detail
+          })
+          // Dispatch the event
+          this.dispatchEvent(event)
+        }
+        initialize() {
+          mapboxgl.accessToken = this.#config.mapboxToken;
+          this.#assets.geocoder = new MapboxGeocoder({
+            "accessToken": mapboxgl.accessToken,
+            "placeholder": "Enter your location",
+            "types": "country,region,place,postcode,locality,neighborhood"
+          })
+
+          this.#assets.geocoder.addTo(this.querySelector(".geocoder-input-container"))
+
+          this.#assets.geocoder.on('result', this.geocoderChangedHandler.bind(this))
+
+          this.#assets.geocoder.on('clear', this.geocoderResetHandler.bind(this))
+    
+          this.addListeners()
+
+          let that = this
+
+          if(navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(async (position) => {
+              that.emit("request", {})
+              let address = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${[position.coords.longitude, position.coords.latitude].join(",")}.json?access_token=${this.#config.mapboxToken}`)
+              let result = await address.json()
+              that.querySelector(".mapboxgl-ctrl-geocoder--input").value = result.features[0].place_name              
+              that.location = [position.coords.longitude, position.coords.latitude]
+            })
+          }
+          else
+          {
+            alert("Either your browser does not support the HTML 5 Geolocation API or you have not accepted.")
+          }
+        }
+        geocoderResetHandler(e) {
+          this.location = undefined
+        }
+        geocoderChangedHandler(e) {          
+          this.location = e.result.geometry.coordinates
+          this.emit("request", {})
+        }
+        requestLocations() {
+          if(typeof this.radius == "undefined" || typeof this.location == "undefined") {           
+            return
+          }
+          let reqObj = {
+            "distance": this.radius,
+            "location": {
+              "lat": this.location[1],
+              "lng": this.location[0]
+            },
+            "h3idx": this.getH3ToCircle()
+          }
+          this.returnLocations(JSON.stringify(reqObj))
+        }
+        getH3ToCircle() {
+          let options = {
+            "steps": 64,
+            "units": "miles"
+          }
+
+          let circle = turf.circle(this.location, this.radius, options)
+          let h3Cells = h3.polygonToCells(circle.geometry.coordinates, 7, true)
+
+          return h3Cells
+        }
+        async returnLocations(requestObj) {
+          let preliminaryResults = await fetch(this.#config.appURL, {
+            "method": "POST",
+            "cache": "no-cache",
+            "headers": {
+              "Content-Type": "text/plain;charset=utf-8"
+            },
+            "redirect": "follow",
+            "body": requestObj
+          })
+          let results = await preliminaryResults.json()
+          this.emit("change", {"data": results})
+        }        
+        addListeners() {
+          this.querySelector(".radius-selector").addEventListener("change", (e) => {
+            this.radius = e.target.value
+            this.emit("radius-change", {})
+          })
+        }
+      }
+      window.customElements.define('obaggo-location-input', ObaggoLocationInput)
+      
+      class ObaggoLocationList extends HTMLElement {
+        
+        get locations() {
+          return this._props.locations
+        }
+        set locations(locations) {
+          this._props.locations = locations.slice(0)
+          this.render()
+        }
+
+        constructor() {
+          super()
+          this._props = {}
+          this.template = document.createElement("template")
+          this.template.innerHTML = `
+            <style>
+              :host {
+                position: absolute;
+                left:0;
+                top:50px;
+                bottom:0px;
+                width:30%;
+                display:block;
+                background:#FFF;
+                overflow-y: auto;
+                overflow-x:hidden;
+                height: calc(100% - 50px);                
+              }
+              :host ul {
+                padding:0;
+                margin:0;
+                list-style:none;
+              }                
+              @media only screen and (max-width: 1024px) {
+                :host {
+                  position:relative;
+                  top: unset;
+                  display:block;
+                  height:auto;
+                  width:100%;
+                  left:0;
+                }              
+              }              
+            </style>
+            <ul class="location-list">
+            
+            </ul>
+          `
+          this.attachShadow({"mode": "open"})          
+        }
+        connectedCallback() {
+          this.shadowRoot.appendChild(this.template.content.cloneNode(true))
+        }
+        emit(type, detail) {      
+          // Create a new event
+          let event = new CustomEvent(`obaggo-location-list:${type}`, {
+            "bubbles": true,
+            "cancelable": true,
+            "detail": detail
+          })
+          // Dispatch the event
+          this.dispatchEvent(event)
+        }        
+        render() {
+          console.log(this.locations)
+          this.shadowRoot.querySelector(".location-list").innerHTML = ""
+          for(let i = 0; i < this.locations.length; i++) {
+            let listItem = document.createElement("obaggo-location-list-item")
+            listItem.details = this.locations[i]
+            this.shadowRoot.querySelector(".location-list").appendChild(listItem)
+          }          
+          this.addListeners() 
+        }
+        itemClickHandler(e) {
+          this.emit("item-click", e.detail)
+        }
+        addListeners() {
+          this.shadowRoot.querySelectorAll("obaggo-location-list-item").forEach((listItem) => {
+            listItem.removeEventListener("obaggo-location-list-item:click", this.itemClickHandler.bind(this))
+            listItem.addEventListener("obaggo-location-list-item:click", this.itemClickHandler.bind(this))
+          })
+        }
+      }
+      window.customElements.define('obaggo-location-list', ObaggoLocationList)
+      
+      class ObaggoLocationListItem extends HTMLElement {
+        
+        get details() {
+          return this._props.details
+        }
+        set details(detailsJSON) {
+          this._props.details = JSON.parse(JSON.stringify(detailsJSON))
+          this.render()
+        }
+
+        constructor() {
+          super()
+          this._props = {}
+          this.template = document.createElement("template")
+          this.template.innerHTML = `
+            <style>
+              :host {
+                padding:10px;
+                background:#FFF;
+                width:100%;
+                position: relative;
+                display:block;
+                box-sizing:border-box;
+              }
+              :host:hover {
+                background: #CCC;
+              }
+              :host .row-name {
+                font-weight:bold;
+                display:block;
+              }
+              :host .row-full-address {
+                display:block;
+                font-size:13px;
+              }
+              :host .row-data {
+                position: relative;
+                width:80%;
+                display:inline-block;
+                height: 40px;
+                vertical-align: middle;                
+              }
+              :host .row-data:hover {
+                cursor:pointer;
+              }
+              :host .row-distance {
+                position: relative;
+                width:20%;
+                display:inline-block;
+                text-align:center;
+                height: 40px;
+                vertical-align: middle;                                
+              }
+              :host .miles-markup {
+                font-size:13px;
+                display:block;                
+              }            
+            </style>
+            <li>
+              <div class="row-data">
+                <span class="row-name">
+                  <slot id="slot-name"></slot>                      
+                </span>
+                <span class="row-full-address">
+                  <slot id="slot-address"></slot>   
+                </span>
+              </div><!--
+           --><div class="row-distance">
+                <span class="miles-markup">
+                  <slot id="slot-distance"></slot> mi
+                </span>
+                <slot id="slot-directions"></slot>
+              </div>              
+            </li>
+          `
+          this.attachShadow({"mode": "open"})          
+        }
+        connectedCallback() {
+          this.shadowRoot.appendChild(this.template.content.cloneNode(true))
+        }
+        emit(type, detail) {      
+          // Create a new event
+          let event = new CustomEvent(`obaggo-location-list-item:${type}`, {
+            "bubbles": true,
+            "cancelable": true,
+            "detail": detail
+          })
+          // Dispatch the event
+          this.dispatchEvent(event)
+        }
+        render() {
+          let that = this
+          let observer = new MutationObserver((mutations) => {
+            mutations.forEach(function(mutation) {
+              if(mutation.addedNodes) {
+                that.shadowRoot.querySelector("li").querySelector("#slot-name").innerHTML = that.details[2]
+                that.shadowRoot.querySelector("li").querySelector("#slot-address").innerHTML = `${that.details[4]}, ${that.details[8]} ${that.details[5]},${that.details[9]}`
+                that.shadowRoot.querySelector("li").querySelector("#slot-distance").innerHTML = that.details[12].toFixed(1)
+                that.shadowRoot.querySelector("li").querySelector("#slot-directions").innerHTML = `<a target="_blank" href="http://maps.google.com/maps?daddr=${that.details[1]}%2C${that.details[0]}" style="font-size:13px;text-decoration:none;color:#000;">Directions</a>`
+                that.addListeners()
+              }
+            })          
+          })
+          observer.observe(this.shadowRoot, {"childList": true })           
+        }
+        clickHandler(e) {
+          let clickedID = this.details[10]
+          this.emit("click", {"id": this.details[10]})
+        }
+        addListeners() {
+          this.shadowRoot.querySelector(".row-data").removeEventListener("click", this.clickHandler.bind(this))
+          this.shadowRoot.querySelector(".row-data").addEventListener("click", this.clickHandler.bind(this))
+        }        
+      }
+      window.customElements.define('obaggo-location-list-item', ObaggoLocationListItem)      
+
+
+      window.onload = () => {
+        document.querySelector("obaggo-location-list").addEventListener("obaggo-location-list:item-click", (e) => {
+          document.querySelector("obaggo-map").clickedFeatureID = e.detail.id
+        })
+        document.querySelector("obaggo-map").addEventListener("obaggo-map:loaded", (e) => {
+          document.querySelector(".backdrop").classList.remove("on")
+        })
+        document.querySelector("obaggo-map").addEventListener("obaggo-map:updated", (e) => {
+          document.querySelector(".backdrop").classList.remove("on")
+        })
+        document.querySelector("obaggo-location-input").addEventListener("obaggo-location-input:request", (e) => {
+          document.querySelector(".backdrop").classList.add("on")
+        })
+        document.querySelector("obaggo-location-input").addEventListener("obaggo-location-input:radius-change", (e) => {
+          document.querySelector(".backdrop").classList.add("on")
+        })        
+        document.querySelector("obaggo-location-input").addEventListener("obaggo-location-input:change", (e) => {
+          // Receive search results
+          // Display them both in the sidebar and on the map
+          console.log(e.detail.data)
+          document.querySelector(".backdrop").classList.add("on")
+          document.querySelector("obaggo-map").features = JSON.parse(JSON.stringify(e.detail.data))
+          document.querySelector("obaggo-location-list").locations = JSON.parse(JSON.stringify(e.detail.data))
+        })
+      }
+    </script>
+  </body>    
+</html>  
